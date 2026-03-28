@@ -1,0 +1,23 @@
+task: 'maniskill_PickCube-v1'
+steps: 2.0e5
+env_num: 4
+eval_episode_num: 10
+action_repeat: 1
+train_ratio: 256
+time_limit: 350
+
+seed: ${seed}
+device: ${device}
+
+size: [128, 128]
+encoder:
+  mlp_keys: 'state'
+  cnn_keys: 'image'
+decoder:
+  mlp_keys: 'state'
+  cnn_keys: 'image'
+
+# Path to demo .npz directory. Null disables demo prefill.
+demodir: null
+# Maximum number of demo episodes to load.
+maxnumdemos: 800

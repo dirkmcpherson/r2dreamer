@@ -7,6 +7,7 @@ class OnlineTrainer:
     def __init__(self, config, replay_buffer, logger, logdir, train_envs, eval_envs):
         self.replay_buffer = replay_buffer
         self.logger = logger
+        self.logdir = logdir
         self.train_envs = train_envs
         self.eval_envs = eval_envs
         self.steps = int(config.steps)
@@ -75,7 +76,8 @@ class OnlineTrainer:
             once_done |= done
         # dict of (B, T, *)
         cache = torch.stack(cache, dim=1) if len(cache) else None
-        self.logger.scalar("episode/eval_score", returns.mean())
+        eval_score = float(returns.mean())
+        self.logger.scalar("episode/eval_score", eval_score)
         self.logger.scalar("episode/eval_length", steps.to(torch.float32).mean())
         for key, value in log_metrics.items():
             if key == "log_success":
@@ -96,6 +98,7 @@ class OnlineTrainer:
             )
         self.logger.write(train_step)
         agent.train()
+        return eval_score
 
     def begin(self, agent):
         """Main online training loop.
@@ -108,6 +111,7 @@ class OnlineTrainer:
         video_cache = []
         step = self.replay_buffer.count() * self._action_repeat
         update_count = 0
+        best_score = float("-inf")
         # (B,)
         done = torch.ones(envs.env_num, dtype=torch.bool, device=agent.device)
         returns = torch.zeros(envs.env_num, dtype=torch.float32, device=agent.device)
@@ -120,9 +124,19 @@ class OnlineTrainer:
         # (B, A)
         act = agent_state["prev_action"].clone()
         while step < self.steps:
-            # Evaluation
+            # Evaluation + checkpointing
             if self._should_eval(step) and self.eval_episode_num > 0:
-                self.eval(agent, step)
+                eval_score = self.eval(agent, step)
+                ckpt = {
+                    "agent_state_dict": agent.state_dict(),
+                    "optims_state_dict": tools.recursively_collect_optim_state_dict(agent),
+                    "step": step,
+                }
+                torch.save(ckpt, self.logdir / "latest.pt")
+                if eval_score > best_score:
+                    best_score = eval_score
+                    torch.save(ckpt, self.logdir / "best.pt")
+                    print(f"[{step}] New best checkpoint: eval_score={eval_score:.1f}")
             # Save metrics
             if done.any():
                 for i, d in enumerate(done):

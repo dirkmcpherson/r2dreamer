@@ -117,6 +117,10 @@ decoder:
     minres: 4
     outscale: 1.0
 
+aux_decoder:
+  enabled: false
+  lr: 1e-4
+
 reward:
   shape: [255,]
   layers: 1

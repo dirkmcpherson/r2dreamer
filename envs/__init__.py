@@ -60,6 +60,16 @@ def make_env(config, id):
             config.camera,
             config.seed + id,
         )
+    elif suite == "maniskill":
+        import envs.maniskill as maniskill
+
+        env = maniskill.ManiSkill(
+            task,
+            config.size,
+            action_repeat=config.action_repeat,
+            seed=config.seed + id,
+        )
+        env = wrappers.NormalizeActions(env)
     else:
         raise NotImplementedError(suite)
     env = wrappers.TimeLimit(env, config.time_limit // config.action_repeat)

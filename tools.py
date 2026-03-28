@@ -116,7 +116,7 @@ class CudaBenchmark:
 
 
 class Logger:
-    def __init__(self, logdir, filename="metrics.jsonl"):
+    def __init__(self, logdir, config=None, filename="metrics.jsonl"):
         self._logdir = logdir
         self._filename = filename
         self._writer = SummaryWriter(log_dir=str(logdir), max_queue=1000)
@@ -126,6 +126,28 @@ class Logger:
         self._images = {}
         self._videos = {}
         self._histograms = {}
+        self._wandb = None
+
+        if config is not None and getattr(config, "wandb", None) and config.wandb.enabled:
+            import wandb
+            run_name = getattr(config.wandb, "name", None) or str(logdir).split("/")[-1]
+            self._wandb = wandb.init(
+                project=config.wandb.project,
+                entity=getattr(config.wandb, "entity", None) or None,
+                name=run_name,
+                config=self._flatten_config(config),
+                dir=str(logdir),
+                resume="allow",
+            )
+
+    @staticmethod
+    def _flatten_config(config):
+        """Convert OmegaConf config to a flat dict for wandb."""
+        try:
+            from omegaconf import OmegaConf
+            return dict(OmegaConf.to_container(config, resolve=True, throw_on_missing=False))
+        except Exception:
+            return {}
 
     def scalar(self, name, value):
         self._scalars[name] = float(value)
@@ -164,6 +186,18 @@ class Logger:
             self._writer.add_histogram(name, value, step)
 
         self._writer.flush()
+
+        if self._wandb is not None:
+            import wandb
+            wb_log = {k: v for k, v in scalars}
+            for name, value in self._videos.items():
+                name = name if isinstance(name, str) else name.decode("utf-8")
+                if np.issubdtype(value.dtype, np.floating):
+                    value = np.clip(255 * value, 0, 255).astype(np.uint8)
+                # wandb.Video expects (T, H, W, C)
+                wb_log[name] = wandb.Video(value[0], fps=16, format="mp4")
+            self._wandb.log(wb_log, step=step)
+
         self._scalars = {}
         self._images = {}
         self._videos = {}

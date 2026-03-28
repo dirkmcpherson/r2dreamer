@@ -115,6 +115,20 @@ class Dreamer(nn.Module):
             for param in self._ema_obs_proj.parameters():
                 param.requires_grad = False
             self._ema_updates = 0
+
+        # Auxiliary decoder for visualization: trains on posterior latents with its own
+        # optimizer, never contributes to the main training loss.
+        if getattr(config, "aux_decoder", None) and config.aux_decoder.enabled and self.rep_loss != "dreamer":
+            self.aux_decoder = networks.MultiDecoder(
+                config.decoder,
+                self.rssm._deter,
+                self.rssm.flat_stoch,
+                shapes,
+            )
+            self._aux_optimizer = torch.optim.Adam(
+                self.aux_decoder.parameters(),
+                lr=float(config.aux_decoder.lr),
+            )
             modules.update({
                 "prototypes": self._prototypes,
                 "obs_proj": self.obs_proj,
@@ -281,8 +295,11 @@ class Dreamer(nn.Module):
 
     def _video_pred(self, data, initial):
         """Video prediction utility."""
-        if self.rep_loss != "dreamer":
-            raise NotImplementedError("video_pred requires decoder and is only supported when rep_loss == 'dreamer'.")
+        decoder = getattr(self, "decoder", None) or getattr(self, "aux_decoder", None)
+        if decoder is None:
+            raise NotImplementedError(
+                "video_pred requires a decoder. Use rep_loss='dreamer' or set model.aux_decoder.enabled=true."
+            )
 
         B = min(data["action"].shape[0], 6)
         # (B, T, E)
@@ -294,18 +311,27 @@ class Dreamer(nn.Module):
             tuple(val[:B] for val in initial),
             data["is_first"][:B, :5],
         )
-        recon = self.decoder(post_stoch, post_deter)["image"].mode()[:B]
+        recon = decoder(post_stoch, post_deter)["image"].mode()[:B]
         init_stoch, init_deter = post_stoch[:, -1], post_deter[:, -1]
         prior_stoch, prior_deter = self.rssm.imagine_with_action(
             init_stoch,
             init_deter,
             data["action"][:B, 5:],
         )
-        openl = self.decoder(prior_stoch, prior_deter)["image"].mode()
+        openl = decoder(prior_stoch, prior_deter)["image"].mode()
         model = torch.cat([recon[:, :5], openl], 1)
         truth = data["image"][:B]
         error = (model - truth + 1.0) / 2.0
         return torch.cat([truth, model, error], 2)
+
+    def _update_aux_decoder(self, post_stoch, post_deter, data):
+        """Train the aux decoder on posterior latents. Separate optimizer — no effect on main loss."""
+        self._aux_optimizer.zero_grad()
+        preds = self.aux_decoder(post_stoch, post_deter)
+        loss = sum(torch.mean(-dist.log_prob(data[key])) for key, dist in preds.items())
+        loss.backward()
+        self._aux_optimizer.step()
+        return {"aux_decoder/loss": float(loss.detach())}
 
     def update(self, replay_buffer):
         """Sample a batch from replay and perform one optimization step."""
@@ -342,6 +368,8 @@ class Dreamer(nn.Module):
             mets["opt/param_rms"] = params_rms
             mets["opt/update_rms"] = update_rms
         metrics.update(mets)
+        if hasattr(self, "aux_decoder"):
+            metrics.update(self._update_aux_decoder(stoch.detach(), deter.detach(), p_data))
         # update latent vectors in replay buffer
         replay_buffer.update(index, stoch.detach(), deter.detach())
         return metrics
