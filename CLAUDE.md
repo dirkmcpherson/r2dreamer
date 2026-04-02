@@ -16,7 +16,7 @@ PyTorch implementation of R2-Dreamer and DreamerV3 for continuous/discrete contr
 
 | Run | PID | Log |
 |---|---|---|
-| Comparison v1 (R2D→DV3) | 1818198 | `logdir/comparison_v1.log` |
+| Demo comparison v1 (R2D→DV3) | 2263642 | `logdir/comparison_demo_v1.log` |
 
 ## Environment
 

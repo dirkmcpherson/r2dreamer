@@ -1,4 +1,5 @@
 import atexit
+import gc
 import pathlib
 import sys
 import warnings
@@ -35,18 +36,18 @@ def prefill_from_demos(config, replay_buffer, agent):
         print(f"Warning: no .npz demos found in {demodir}")
         return
 
-    # Load all episodes, split successful (short) first.
-    successful, failed = [], []
-    for p in paths:
+    # Sort by episode length using filename (format: {idx}-{length}.npz).
+    # Shorter = successful. Fall back to loading reward array if name doesn't match.
+    def ep_length_from_path(p):
         try:
-            ep = dict(np.load(p, allow_pickle=False))
-        except Exception as e:
-            print(f"Could not load demo {p}: {e}")
-            continue
-        (successful if len(ep["reward"]) <= time_limit else failed).append(ep)
+            return int(p.stem.split("-")[1])
+        except (IndexError, ValueError):
+            return time_limit + 1
 
-    episodes = (successful + failed)[:maxnumdemos]
-    print(f"Demo prefill: {len(successful)} successful + {len(failed)} failed demos found, loading {len(episodes)}")
+    paths = sorted(paths, key=ep_length_from_path)
+    n_successful = sum(1 for p in paths if ep_length_from_path(p) <= time_limit)
+    paths = paths[:maxnumdemos]
+    print(f"Demo prefill: {n_successful} successful + {len(paths) - n_successful} failed demos found, loading {len(paths)}")
 
     # Determine latent shapes from the agent.
     init_state = agent.get_initial_state(1)
@@ -57,7 +58,13 @@ def prefill_from_demos(config, replay_buffer, agent):
     demo_ep_id_start = 10_000
     n_steps = 0
 
-    for ep_idx, ep in enumerate(episodes):
+    for ep_idx, ep_path in enumerate(paths):
+        try:
+            ep = dict(np.load(ep_path, allow_pickle=False))
+        except Exception as e:
+            print(f"Could not load demo {ep_path}: {e}")
+            continue
+
         ep_id = demo_ep_id_start + ep_idx
         T = len(ep["reward"])
 
@@ -80,7 +87,11 @@ def prefill_from_demos(config, replay_buffer, agent):
             replay_buffer.add_transition(trans)
             n_steps += 1
 
-    print(f"Demo prefill complete: loaded {len(episodes)} demos ({n_steps} steps) from {demodir}")
+        # Explicitly free episode data and collect garbage to keep peak RAM low.
+        del ep
+        gc.collect()
+
+    print(f"Demo prefill complete: loaded {len(paths)} demos ({n_steps} steps) from {demodir}")
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="configs")
