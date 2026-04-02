@@ -5,12 +5,12 @@ PyTorch implementation of R2-Dreamer and DreamerV3 for continuous/discrete contr
 ## Agent Status
 
 - **Status:** 🟢 active
-- **Last session:** 2026-03-27
-- **Current branch:** main
-- **What happened:** Added periodic checkpointing (best.pt + latest.pt), auxiliary decoder for imagined rollout visualization (`model.aux_decoder.enabled=true`), and `compare.sh` script that trains R2Dreamer then DreamerV3 back-to-back. Smoke tested successfully — both modes run sequentially and checkpoint correctly.
-- **What's next:** Launch a full comparison run via `./compare.sh`. Obtain demo dataset from cluster for demo-conditioned runs.
-- **Blocked on:** Demo dataset not available locally (lives on cluster at `../confound/dreamerv3-torch/maniskill_single_goal_easy/`).
-- **Key decisions made:** Buffer storage overridden to CPU (`buffer.storage_device=cpu`) and max_size=5e4 for local GPU (12 GB). ManiSkill workers raise on teardown causing non-zero exit — compare.sh treats this as success if `latest.pt` was saved. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` needed to avoid fragmentation OOM. Checkpointing saves best (by eval_score) and latest every `eval_every` steps.
+- **Last session:** 2026-04-02
+- **Current branch:** feat/sailor-r2-packaging
+- **What happened:** Made r2dreamer an installable Python package (`pip install -e .`) with thin `r2dreamer/__init__.py` re-export shim and `pyproject.toml`. Built new `sailor-r2` repo at `../sailor-r2/` that depends on this package — combines SAILOR's training pipeline with r2dreamer's world model via an `RSSMAdapter` bridge. All core components verified: adapter, world model, distributional critic ensemble pass shape tests.
+- **What's next:** End-to-end test of sailor-r2 on a simple task (e.g. pusht_state). Merge packaging branch to main.
+- **Blocked on:** nothing
+- **Key decisions made:** Thin shim approach for packaging (avoid rewriting all imports). r2dreamer/\_\_init\_\_.py adds repo root to sys.path so existing relative imports still work. sailor-r2 inherits from SAILOR's SAILORTrainer to minimize code duplication.
 
 ## Active runs
 
