@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 : "${BUFFER_SIZE:=5e4}"
 : "${ENV_NUM:=2}"
 : "${EVAL_NUM:=2}"
+: "${DEMODIR:=}"
 : "${LOGDIR:=${SCRIPT_DIR}/logdir/comparison}"
 
 source "${SCRIPT_DIR}/.venv/bin/activate"
@@ -35,6 +36,10 @@ run() {
     echo "=========================================="
     echo "  ${name}"
     echo "=========================================="
+    local demo_args=()
+    if [[ -n "${DEMODIR}" ]]; then
+        demo_args=("env.demodir=${DEMODIR}")
+    fi
     python "${SCRIPT_DIR}/train.py" \
         env=${ENV} \
         seed=${SEED} \
@@ -45,6 +50,7 @@ run() {
         env.env_num=${ENV_NUM} \
         env.eval_episode_num=${EVAL_NUM} \
         logdir="${run_logdir}" \
+        "${demo_args[@]}" \
         "$@" || {
         # ManiSkill subprocess workers can raise on teardown, causing non-zero exit.
         # Treat as success only if the final checkpoint was saved.

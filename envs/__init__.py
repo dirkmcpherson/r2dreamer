@@ -68,6 +68,7 @@ def make_env(config, id):
             config.size,
             action_repeat=config.action_repeat,
             seed=config.seed + id,
+            time_limit=config.time_limit,
         )
         env = wrappers.NormalizeActions(env)
     else:

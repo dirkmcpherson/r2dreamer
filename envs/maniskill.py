@@ -19,6 +19,7 @@ class ManiSkill(gym.Env):
         size=(128, 128),
         action_repeat=1,
         seed=None,
+        time_limit=350,
         obs_mode="rgb+state_dict",
         control_mode="pd_ee_delta_pos",
     ):
@@ -29,12 +30,14 @@ class ManiSkill(gym.Env):
         self.size = tuple(size)
         self.seed = seed
 
+        # max_episode_steps must be set explicitly; None makes ManiSkill use
+        # its own short default (50 for PickCube), bypassing our TimeLimit wrapper.
         self._env = gym.make(
             task,
             num_envs=1,
             obs_mode=obs_mode,
             control_mode=control_mode,
-            max_episode_steps=None,  # time limit handled by r2dreamer's TimeLimit wrapper
+            max_episode_steps=time_limit,
             reward_mode="normalized_dense",
             render_mode="rgb_array",
             robot_uids="panda_wristcam",
