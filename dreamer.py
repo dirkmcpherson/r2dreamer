@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import networks
 import rssm
 import tools
-from networks import Projector
+from networks import Projector, SIGReg
 from optim import LaProp, clip_grad_agc_
 from tools import to_f32
 
@@ -90,6 +90,14 @@ class Dreamer(nn.Module):
             self.prj = Projector(self.rssm.feat_size, self.embed_size)
             modules.update({"projector": self.prj})
             self.barlow_lambd = float(config.r2dreamer.lambd)
+        elif self.rep_loss == "sigreg":
+            self.prj = Projector(self.rssm.feat_size, self.embed_size)
+            modules.update({"projector": self.prj})
+            self.sigreg = SIGReg(
+                knots=int(config.sigreg.knots),
+                num_proj=int(config.sigreg.num_proj),
+            )
+            self.sigreg_lambd = float(config.sigreg.lambd)
         elif self.rep_loss == "dreamerpro":
             dpc = config.dreamer_pro
             self.warm_up = int(dpc.warm_up)
@@ -424,6 +432,15 @@ class Dreamer(nn.Module):
             off_diag_mask = ~torch.eye(x1.shape[-1], dtype=torch.bool, device=x1.device)
             redundancy_loss = c[off_diag_mask].pow(2).sum()
             losses["barlow"] = invariance_loss + self.barlow_lambd * redundancy_loss
+        elif self.rep_loss == "sigreg":
+            # SIGReg: MSE alignment + isotropic Gaussian regularization
+            x1 = self.prj(feat.reshape(B * T, -1))
+            x2 = embed.reshape(B * T, -1).detach()
+            pred_loss = (x1 - x2).pow(2).mean()
+            sigreg_loss = self.sigreg(x1.reshape(B, T, -1).permute(1, 0, 2))
+            losses["sigreg"] = pred_loss + self.sigreg_lambd * sigreg_loss
+            metrics["sigreg/pred_loss"] = pred_loss.detach()
+            metrics["sigreg/reg_loss"] = sigreg_loss.detach()
         elif self.rep_loss == "infonce":
             # Contrastive (InfoNCE) objective between projected latent features and encoder embeddings.
             # (B, T, F) -> (B*T, F)

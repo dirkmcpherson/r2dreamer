@@ -58,6 +58,7 @@ run() {
 }
 
 run "R2Dreamer" "${LOGDIR}/r2dreamer" model.rep_loss=r2dreamer "$@"
+run "SIGReg"    "${LOGDIR}/sigreg"    model.rep_loss=sigreg    "$@"
 run "DreamerV3"  "${LOGDIR}/dreamerv3" model.rep_loss=dreamer  "$@"
 
 echo ""

@@ -29,6 +29,7 @@ from networks import (  # noqa: E402
     Projector,
     ReturnEMA,
     RMSNorm2D,
+    SIGReg,
 )
 
 # -- Distributions -------------------------------------------------------------
@@ -69,6 +70,7 @@ __all__ = [
     "Projector",
     "ReturnEMA",
     "RMSNorm2D",
+    "SIGReg",
     # Distributions
     "Bound",
     "MSEDist",
