@@ -427,6 +427,16 @@ class Dreamer(nn.Module):
             params_rms = tools.compute_rms(self._named_params.values())
             mets["opt/param_rms"] = params_rms
             mets["opt/update_rms"] = update_rms
+        # Effective rank — SVD is incompatible with torch.compile/CUDA graphs,
+        # so we compute it here outside the compiled region.
+        feat_for_rank = mets.pop("_feat_for_rank", None)
+        if feat_for_rank is not None:
+            with torch.no_grad():
+                feat_centered = feat_for_rank - feat_for_rank.mean(dim=0)
+                s = torch.linalg.svdvals(feat_centered.float())
+                p = s / s.sum()
+                p = p[p > 1e-8]
+                mets["repr/effective_rank"] = torch.exp(-torch.sum(p * torch.log(p)))
         metrics.update(mets)
         if hasattr(self, "aux_decoder"):
             metrics.update(self._update_aux_decoder(stoch.detach(), deter.detach(), p_data))
@@ -538,13 +548,8 @@ class Dreamer(nn.Module):
             feat_var = feat_flat.var(dim=0)
             metrics["repr/feat_var_mean"] = feat_var.mean()
             metrics["repr/feat_var_min"] = feat_var.min()
-            # Effective rank via singular value entropy (higher = more dimensions used)
-            # Normalize features for SVD stability
-            feat_centered = feat_flat - feat_flat.mean(dim=0)
-            s = torch.linalg.svdvals(feat_centered.float())
-            p = s / s.sum()
-            p = p[p > 1e-8]  # filter near-zero
-            metrics["repr/effective_rank"] = torch.exp(-torch.sum(p * torch.log(p)))
+            # Stash feat for effective rank computation outside torch.compile
+            metrics["_feat_for_rank"] = feat_flat.detach()
 
         # === Imagination rollout for actor-critic ===
         # (B*T, S, K), (B*T, D)
