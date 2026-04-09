@@ -96,6 +96,14 @@ class OnlineTrainer:
                     )
                 ),
             )
+        # Open-loop world model prediction eval
+        if cache is not None:
+            initial = agent.get_initial_state(cache.shape[0])
+            ol_metrics = agent.open_loop_eval(
+                cache, (initial["stoch"], initial["deter"]),
+            )
+            for name, value in ol_metrics.items():
+                self.logger.scalar(f"eval/{name}", tools.to_np(value) if isinstance(value, torch.Tensor) else value)
         self.logger.write(train_step)
         agent.train()
         return eval_score

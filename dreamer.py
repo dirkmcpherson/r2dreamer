@@ -332,6 +332,58 @@ class Dreamer(nn.Module):
         error = (model - truth + 1.0) / 2.0
         return torch.cat([truth, model, error], 2)
 
+    @torch.no_grad()
+    def open_loop_eval(self, data, initial, context_len=5):
+        """Evaluate world model prediction by comparing open-loop prior to posterior.
+
+        Rolls the RSSM forward with real actions but no observations (prior only)
+        after an initial context window, then measures divergence from the
+        observation-conditioned posterior at each timestep.
+
+        Returns a dict of scalar metrics.
+        """
+        torch.compiler.cudagraph_mark_step_begin()
+        p_data = self.preprocess(data)
+        B, T = p_data.shape
+        if T <= context_len:
+            return {}
+
+        embed = self.encoder(p_data)
+        # Full posterior rollout (ground truth latents)
+        post_stoch, post_deter, _ = self.rssm.observe(
+            embed, p_data["action"], initial, p_data["is_first"],
+        )
+        post_feat = self.rssm.get_feat(post_stoch, post_deter)
+
+        # Open-loop: condition on first `context_len` steps, then imagine forward
+        init_stoch = post_stoch[:, context_len - 1]
+        init_deter = post_deter[:, context_len - 1]
+        prior_stoch, prior_deter = self.rssm.imagine_with_action(
+            init_stoch, init_deter, p_data["action"][:, context_len:],
+        )
+        prior_feat = self.rssm.get_feat(prior_stoch, prior_deter)
+
+        # Compare: MSE between open-loop and posterior features over time
+        post_feat_future = post_feat[:, context_len:]
+        # (B, T-ctx, F)
+        mse_per_step = (prior_feat - post_feat_future).pow(2).mean(dim=(0, 2))
+        # Cosine similarity per step
+        cos_per_step = F.cosine_similarity(
+            prior_feat.reshape(-1, prior_feat.shape[-1]),
+            post_feat_future.reshape(-1, post_feat_future.shape[-1]),
+        ).reshape(B, -1).mean(dim=0)
+
+        n_future = mse_per_step.shape[0]
+        metrics = {
+            "open_loop/mse_mean": mse_per_step.mean(),
+            "open_loop/mse_first5": mse_per_step[:min(5, n_future)].mean(),
+            "open_loop/mse_last5": mse_per_step[max(0, n_future - 5):].mean(),
+            "open_loop/cos_mean": cos_per_step.mean(),
+            "open_loop/cos_first5": cos_per_step[:min(5, n_future)].mean(),
+            "open_loop/cos_last5": cos_per_step[max(0, n_future - 5):].mean(),
+        }
+        return metrics
+
     def _update_aux_decoder(self, post_stoch, post_deter, data):
         """Train the aux decoder on posterior latents. Separate optimizer — no effect on main loss."""
         self._aux_optimizer.zero_grad()
@@ -478,6 +530,21 @@ class Dreamer(nn.Module):
         # log
         metrics["dyn_entropy"] = torch.mean(self.rssm.get_dist(prior_logit).entropy())
         metrics["rep_entropy"] = torch.mean(self.rssm.get_dist(post_logit).entropy())
+
+        # === Representation quality metrics ===
+        with torch.no_grad():
+            feat_flat = feat.reshape(B * T, -1)
+            # Per-dimension variance (should be non-zero across all dims if no collapse)
+            feat_var = feat_flat.var(dim=0)
+            metrics["repr/feat_var_mean"] = feat_var.mean()
+            metrics["repr/feat_var_min"] = feat_var.min()
+            # Effective rank via singular value entropy (higher = more dimensions used)
+            # Normalize features for SVD stability
+            feat_centered = feat_flat - feat_flat.mean(dim=0)
+            s = torch.linalg.svdvals(feat_centered.float())
+            p = s / s.sum()
+            p = p[p > 1e-8]  # filter near-zero
+            metrics["repr/effective_rank"] = torch.exp(-torch.sum(p * torch.log(p)))
 
         # === Imagination rollout for actor-critic ===
         # (B*T, S, K), (B*T, D)
