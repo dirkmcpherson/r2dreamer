@@ -495,11 +495,14 @@ class Dreamer(nn.Module):
             redundancy_loss = c[off_diag_mask].pow(2).sum()
             losses["barlow"] = invariance_loss + self.barlow_lambd * redundancy_loss
         elif self.rep_loss == "sigreg":
-            # SIGReg: MSE alignment + isotropic Gaussian regularization
+            # SIGReg: projector(rssm_feat) aligns to encoder embed; sigreg
+            # regularizes the encoder embed to be isotropic Gaussian (le-wm
+            # applies sigreg to encoder output, not projector output — this is
+            # the actual collapse-prevention path that trains the encoder).
             x1 = self.prj(feat.reshape(B * T, -1))
             x2 = embed.reshape(B * T, -1).detach()
             pred_loss = (x1 - x2).pow(2).mean()
-            sigreg_loss = self.sigreg(x1.reshape(B, T, -1).permute(1, 0, 2))
+            sigreg_loss = self.sigreg(embed.permute(1, 0, 2))
             losses["sigreg"] = pred_loss + self.sigreg_lambd * sigreg_loss
             metrics["sigreg/pred_loss"] = pred_loss.detach()
             metrics["sigreg/reg_loss"] = sigreg_loss.detach()
