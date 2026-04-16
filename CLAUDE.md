@@ -5,12 +5,12 @@ PyTorch implementation of R2-Dreamer and DreamerV3 for continuous/discrete contr
 ## Agent Status
 
 - **Status:** 🟢 active
-- **Last session:** 2026-04-02
-- **Current branch:** feat/sailor-r2-packaging
-- **What happened:** Made r2dreamer an installable Python package (`pip install -e .`) with thin `r2dreamer/__init__.py` re-export shim and `pyproject.toml`. Built new `sailor-r2` repo at `../sailor-r2/` that depends on this package — combines SAILOR's training pipeline with r2dreamer's world model via an `RSSMAdapter` bridge. All core components verified: adapter, world model, distributional critic ensemble pass shape tests.
-- **What's next:** End-to-end test of sailor-r2 on a simple task (e.g. pusht_state). Merge packaging branch to main.
+- **Last session:** 2026-04-16
+- **Current branch:** sigreg
+- **What happened:** Ran ManiSkill comparison of dreamerv3 / r2dreamer / sigreg (`compare.sh`). DreamerV3 and R2Dreamer both reach >100 reward regularly by end of 2e5 steps. SIGReg still underperforms even after two integration fixes: (1) sigreg target changed from projector output to encoder `embed` so the encoder actually receives the isotropy gradient (matches le-wm), (2) `loss_scales.sigreg: 0.05 → 1.0` to align effective lambda with le-wm's reference. Earlier r2dreamer crash at 20k was replay-buffer fill; rerun completes.
+- **What's next:** Decide whether to keep investigating sigreg (batch-size-compensated lambda ~0.7 is the next knob, since we train at B=16 vs le-wm's B=128) or set it aside. Merge sigreg branch if done.
 - **Blocked on:** nothing
-- **Key decisions made:** Thin shim approach for packaging (avoid rewriting all imports). r2dreamer/\_\_init\_\_.py adds repo root to sys.path so existing relative imports still work. sailor-r2 inherits from SAILOR's SAILORTrainer to minimize code duplication.
+- **Key decisions made:** SIGReg must regularize the encoder embedding, not the projector output — otherwise the detached alignment target leaves the encoder without an isotropy gradient. The `loss_scales.sigreg * sigreg_lambd` double-multiply was masking the effective regularization weight.
 
 ## Active runs
 
